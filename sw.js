@@ -1,7 +1,7 @@
 /* スペシャル計算（機内用）の service worker
    画面の部品だけを手元に置き、ネットより手元を先に使う。問題の画像はここに無い（IndexedDB に入る）
    ★同じ nambanamba.github.io のほかのアプリの cache は消さない（消すのは sp-offline- で始まる古いものだけ） */
-const C = "sp-offline-3e4e7293c0";
+const C = "sp-offline-a23de0dfe2";
 const PRE = ["./", "index.html", "app.js", "off.js", "manifest.json", "icon.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(C).then(c => c.addAll(PRE)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith("sp-offline-") && k !== C).map(k => caches.delete(k)))).then(() => self.clients.claim())); });

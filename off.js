@@ -8,6 +8,7 @@
   const tx = (mode, f) => idb().then(d => new Promise((ok, ng) => { const t = d.transaction(ST, mode), s = t.objectStore(ST); const r = f(s); t.oncomplete = () => ok(r && r.result); t.onerror = () => ng(t.error); t.onabort = () => ng(t.error); }));
   const get = k => tx("readonly", s => s.get(k));
   const putMany = o => tx("readwrite", s => { Object.keys(o).forEach(k => s.put(o[k], k)); });
+  const dirtyOf = d => (d && typeof d === "object" && !Array.isArray(d)) ? d : {};
   const cp = v => v == null ? v : JSON.parse(JSON.stringify(v));
   const $ = id => document.getElementById(id);
   const fmt = t => { const d = new Date(t); return (d.getMonth() + 1) + "/" + d.getDate() + " " + d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0"); };
@@ -19,8 +20,13 @@
   async function readFile(f) {
     const p = JSON.parse(await f.text());
     if (!p || p.app !== "special-keisan" || p.v !== 1 || !Array.isArray(p.pages) || p.pages.length !== 52 || typeof p.docs !== "object") throw new Error("スペシャル計算の機内用ファイルではありません");
-    const dirty = (await get("meta:dirty")) || [], o = {"meta:pages": p.pages, "meta:info": {created: p.created, loaded: Date.now(), name: f.name}};
-    Object.keys(p.docs).forEach(k => { if (!dirty.includes(k)) o["doc:" + k] = p.docs[k]; });
+    /* 機内で書いたもの（dirty）は上書きしない。ただし「書き出したあと」で「そのあとに作ったファイル」なら、ファイルの版を入れて dirty から外す
+       （着いて db に足したあとに作り直したファイルには、機内の分も入っているため） */
+    const dt = dirtyOf(await get("meta:dirty")), ex = (await get("meta:exported")) || 0, cr = +p.created || 0;
+    const o = {"meta:pages": p.pages, "meta:info": {created: p.created, loaded: Date.now(), name: f.name}};
+    Object.keys(dt).forEach(k => { if (dt[k] <= ex && dt[k] < cr) delete dt[k]; });
+    Object.keys(p.docs).forEach(k => { if (!(k in dt)) o["doc:" + k] = p.docs[k]; });
+    o["meta:dirty"] = dt;
     await putMany(o);
   }
   function gate(note) {
@@ -38,26 +44,26 @@
   }
 
   /* ---- いつものアプリにわたす db（IndexedDB）。書いたものは meta:dirty に覚える ---- */
-  const MEM = new Map(); let dirty = [];
+  const MEM = new Map(); let dirty = {}, exported = 0;   // dirty: {path: 機内で最後に書いた時刻}
   const fdb = {
     doc: p => ({
       get: async () => { const v = MEM.get(p); return {exists: v !== undefined, id: p.split("/").pop(), data: () => cp(v)}; },
-      set: async v => { v = cp(v); MEM.set(p, v); if (!dirty.includes(p)) dirty.push(p); await putMany({["doc:" + p]: v, "meta:dirty": dirty}); offShow(); }
+      set: async v => { v = cp(v); MEM.set(p, v); dirty[p] = Date.now(); await putMany({["doc:" + p]: v, "meta:dirty": dirty}); offShow(); }
     }),
     collection: c => ({ get: async () => { const docs = []; MEM.forEach((v, p) => { const i = p.indexOf("/"); if (p.slice(0, i) === c && p.indexOf("/", i + 1) < 0) docs.push({id: p.slice(i + 1), exists: true, data: () => cp(v)}); }); return {docs}; } })
   };
-  const nDirty = () => dirty.filter(p => !p.startsWith("state/")).length;
+  const nDirty = () => Object.keys(dirty).filter(p => !p.startsWith("state/") && dirty[p] > exported).length;   // まだ書き出していない数
 
   /* ---- 記録を書き出す ---- */
   async function exportRecs() {
-    const docs = {}; dirty.forEach(p => { if (MEM.has(p)) docs[p] = MEM.get(p); });
+    const docs = {}; Object.keys(dirty).forEach(p => { if (MEM.has(p)) docs[p] = MEM.get(p); });
     const info = (await get("meta:info")) || {}, now = new Date();
     const name = "sp_kiroku_" + now.getFullYear() + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0") + "_" + String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0") + ".json";
     const body = JSON.stringify({app: "special-keisan", v: 1, kind: "recs", from: "offline", made: Date.now(), base: info.created || 0, docs});
     const file = new File([body], name, {type: "application/json"});
-    try { if (navigator.canShare && navigator.canShare({files: [file]})) { await navigator.share({files: [file], title: name}); await putMany({"meta:exported": Date.now()}); offShow(); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+    try { if (navigator.canShare && navigator.canShare({files: [file]})) { await navigator.share({files: [file], title: name}); exported = Date.now(); await putMany({"meta:exported": exported}); offShow(); return; } } catch (e) { if (e && e.name === "AbortError") return; }
     const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 5000);
-    await putMany({"meta:exported": Date.now()}); offShow();
+    exported = Date.now(); await putMany({"meta:exported": exported}); offShow();
   }
 
   /* ---- 上の帯の「✈機内用」と、その中の画面 ---- */
@@ -87,7 +93,7 @@
     let pages = null;
     try { pages = await get("meta:pages"); } catch (e) { gate("この iPad の中を読めませんでした（" + (e.message || e) + "）"); return; }
     if (!Array.isArray(pages) || pages.length !== 52) { gate(""); return; }
-    dirty = (await get("meta:dirty")) || [];
+    dirty = dirtyOf(await get("meta:dirty")); exported = (await get("meta:exported")) || 0;
     const R = IDBKeyRange.bound("doc:", "doc:￿");
     const docKs = await tx("readonly", s => s.getAllKeys(R)), vals = await tx("readonly", s => s.getAll(R));   // どちらも同じ順（キーの順）
     docKs.forEach((k, i) => MEM.set(k.slice(4), vals[i]));
