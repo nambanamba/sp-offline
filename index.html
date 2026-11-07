@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="スペシャル計算✈">
+<link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icon.png"><link rel="icon" href="icon.png">
+<meta name="robots" content="noindex">
+<title>スペシャル計算（機内用）</title>
+</head><body>
+
+<style>
+:root{--bg:#f4f1ea;--ink:#222;--bar:#fff;--line:#d8d2c4;--acc:#1f6f78;--red:#c0392b;--ok:#c0392b;--ng:#2c4a6b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#f4f1ea;--ink:#222;--bar:#fff;--line:#d8d2c4}}
+:root[data-theme="dark"]{--bg:#f4f1ea;--ink:#222;--bar:#fff;--line:#d8d2c4}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.4 "Hiragino Sans","Noto Sans JP",sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+/* 11-03: iPad の画面の上の帯（時計など）にボタンがかくれないように、上のすき間の分だけ下げる */
+:root{--st:env(safe-area-inset-top,0px)}
+#bar button.pick{background:var(--acc);color:#fff;border-color:var(--acc);font-weight:700}
+#bar{position:fixed;left:0;right:0;top:var(--st);height:56px;background:var(--bar);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;padding:0 8px;z-index:5;overflow-x:auto;white-space:nowrap}
+#bar button,#rec button{font:inherit;font-size:15px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);flex:none}
+#bar button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.sep{width:1px;height:28px;background:var(--line);flex:none}
+#pg{font-weight:700;min-width:96px;text-align:center;flex:none}
+#tm{font-variant-numeric:tabular-nums;min-width:56px;text-align:center;flex:none;font-weight:700}
+/* 記録の枠（いつ・何分・〇✕）。1問ごと */
+#rec{position:fixed;left:0;right:0;top:calc(57px + var(--st));height:96px;background:#fffdf6;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;align-content:center;align-items:center;gap:6px 8px;padding:0 8px;z-index:5;overflow:hidden}
+#rec label{display:flex;align-items:center;gap:4px;flex:none;font-size:15px}
+#rec input{font:inherit;font-size:16px;padding:6px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);-webkit-user-select:text;user-select:text}
+#rec input[type=number]{width:3.2em;text-align:right}
+#rec button.mk{min-width:60px;font-size:17px;font-weight:700;padding:6px 8px}
+#rec button.mk.cur{outline:2px solid var(--acc);outline-offset:1px}
+#rec button.mk.o{background:var(--ok);border-color:var(--ok);color:#fff}
+#rec button.mk.x{background:var(--ng);border-color:var(--ng);color:#fff}
+#rec button.mk.sv{opacity:.45}
+#rec button.save{background:var(--acc);border-color:var(--acc);color:#fff}
+#rec .r2{flex-basis:100%;display:flex;align-items:center;gap:10px;min-width:0}
+#hist{font-size:14px;color:#555;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#rec button.sm{font-size:13px;padding:5px 8px}
+/* 11-02（ユーザー）: 問題は上の帯に固定（メモの線もいっしょ）。その下の計算用紙だけが上下に動く */
+/* 11-07（ユーザー「問題の数式を左上の箱にして、それ以外を全部計算のプリントに」「サイズ変更や、移動も可能」）:
+   帯をやめて、問題の式（学校名と右の白いところは切る）を、計算用紙の上にうかぶ箱にする。「大きく」で見出し（チャレンジ◯・本冊◯ページ。丸付けに使う）も出して大きく。上の帯を持って動かす・右下の角を引っぱる・2本指のピンチで大きさを変える。次の問題では左上・ふつうの大きさにもどす */
+#band{position:fixed;left:6px;top:calc(160px + var(--st));width:300px;height:80px;background:#fff;border:2px solid #8a8170;border-radius:8px;box-shadow:0 3px 12px rgba(0,0,0,.25);z-index:4;overflow:hidden;touch-action:none}
+#bHead{position:absolute;left:0;right:0;top:0;height:36px;background:#efe9db;font-size:13px;color:#6b6352;display:flex;align-items:center;padding-left:8px;z-index:3;touch-action:none;white-space:nowrap;overflow:hidden}
+#band #bBig{z-index:4}
+/* 11-07（ユーザー「縦が小さくて数字が書けない。文字は広げずに余白の書く欄だけ大きく」）: 下のふちのつまみで、式の下の書く場所だけを たてに広げる */
+#bTall{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:140px;height:30px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:5px;z-index:3;touch-action:none}
+#bTall::before{content:"";width:70px;height:7px;border-radius:4px;background:#a39a86}
+#bSize{position:absolute;right:0;bottom:0;width:36px;height:36px;z-index:3;touch-action:none}
+#bSize::before{content:"";position:absolute;right:4px;bottom:4px;border-style:solid;border-width:0 0 18px 18px;border-color:transparent transparent #a39a86 transparent}
+#bstage{position:absolute;left:0;top:0;transform-origin:0 0}
+#bstage .crop{position:absolute;left:0;width:100%;background-repeat:no-repeat}
+#bstage canvas{position:absolute;left:0}
+#bBig{position:absolute;right:4px;top:3px;font:inherit;font-size:14px;padding:3px 12px;border:1px solid var(--line);border-radius:10px;background:#f7f4ec;color:var(--ink);z-index:2}
+#view{position:fixed;left:0;right:0;top:238px;bottom:0;overflow:hidden;touch-action:none;background:#e9e4d8}
+#stage{position:absolute;left:0;top:0;transform-origin:0 0;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.15)}
+#stage .crop{position:absolute;left:0;width:100%;background-repeat:no-repeat}
+#stage .wlab{position:absolute;left:3%;color:#b9b2a2;font-size:30px}
+#stage .wline{position:absolute;left:3%;right:3%;border-top:2px dashed #e4ddcc}
+#stage canvas{position:absolute;left:0;top:0;width:100%;height:100%}
+#stage .addp{position:absolute;left:50%;transform:translateX(-50%);font:inherit;font-size:40px;padding:18px 48px;border:2px solid var(--acc);border-radius:20px;background:#fff;color:var(--acc);z-index:2}
+#list{position:fixed;inset:calc(57px + var(--st)) 0 0 0;background:var(--bg);z-index:6;overflow:auto;padding:12px;display:none}
+#list.show{display:block}
+#list .pgrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid var(--line)}
+#list .pgno{min-width:5.5em;font-weight:700}
+#list button{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);min-width:64px}
+#list button.cur{border:2px solid var(--acc);font-weight:700}
+#list button .m{margin-left:4px;font-weight:700}
+#list button .m.o{color:var(--ok)} #list button .m.x{color:var(--ng)}
+#list .plan{background:#fff;border:2px solid var(--acc);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+#list .plan h3{margin:0 0 8px;font-size:17px}
+#list .plan .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#list .plan .note{font-size:14px;color:#555;margin-top:6px}
+#list button.pl{border:2px solid var(--acc);background:#e6f2f3}
+#list button.sel{background:var(--acc);color:#fff;border-color:var(--acc)}
+#list button.act{background:var(--acc);color:#fff;border-color:var(--acc);font-weight:700}
+#list button.old{color:#666;font-size:14px}
+#msg{position:fixed;left:50%;top:calc(170px + var(--st));transform:translateX(-50%);background:rgba(0,0,0,.75);color:#fff;padding:8px 14px;border-radius:20px;font-size:14px;display:none;z-index:9}
+body.oldmode #rec,body.oldmode #band{display:none} body.oldmode #view{top:calc(57px + var(--st)) !important}
+</style>
+<div id="bar">
+  <button id="bList" class="pick">問題をえらぶ</button>
+  <button id="bPrev">◀</button><span id="pg"></span><button id="bNext">▶</button><span id="pend" style="display:none;color:#c0392b;font-weight:700;font-size:14px;flex:none"></span>
+  <span class="sep"></span>
+  <button id="cBlack" class="on">黒</button><button id="cRed">赤</button><button id="bErase">消しゴム</button><button id="bUndo">1つもどる</button><button id="bFinger">指で書く：オフ</button>
+  <span class="sep"></span>
+  <button id="bZin">＋</button><button id="bZout">－</button><button id="bFit">全体</button>
+  <span class="sep"></span>
+  <button id="bTimer">はじめ</button>
+  <span class="sep"></span>
+  <button id="bClear">この問題の線を全部消す</button>
+</div>
+<div id="rec">
+  <label>いつ <input type="date" id="rDate"></label>
+  <span id="marks"></span>
+  <button class="save" id="rSave">このページを記録する</button>
+  <div class="r2"><span id="hist"></span><button class="sm" id="rClear">4問の線を消す（次の回のため）</button></div>
+</div>
+<div id="band"><div id="bHead">✥ 問題（ここを持って動かす）</div><div id="bstage"></div><div id="bTall"></div><div id="bSize"></div><button id="bBig">大きく</button></div>
+<div id="view"><div id="stage"></div></div>
+<div id="list"></div>
+<div id="msg"></div>
+
+<div id="offGate" style="display:none"></div>
+<script src="off.js"></script>
+</body></html>
