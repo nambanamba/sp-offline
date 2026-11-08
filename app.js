@@ -126,7 +126,8 @@ $("bBig").addEventListener("pointerup", ev => { ev.stopPropagation(); toggleBig(
 /* ---- 保存（端末と db。iPad は開き直すと端末の分が消えることがあるので db にも置く） ---- */
 let saveT = null, dirty = new Set(), loaded = new Set();
 function pack(o) { return {s: o.s, m: o.m, h: o.h}; }
-function save() { if (oldPage >= 0) return; const k = ikey(), o = cq(); delete o.old; dirty.add(k); lsSet("sp-ink2-" + k, JSON.stringify(pack(o))); pendMark("ink2/" + k, true); clearTimeout(saveT); saveT = setTimeout(flush, 800); }
+const edits = {};   // 11-08: 問題ごとの「書いた回数」。読みこみの返事がおそいとき、そのあいだに書いていたら返事を使わない（下の loadInk）
+function save() { if (oldPage >= 0) return; const k = ikey(), o = cq(); delete o.old; edits[k] = (edits[k] || 0) + 1; dirty.add(k); lsSet("sp-ink2-" + k, JSON.stringify(pack(o))); pendMark("ink2/" + k, true); clearTimeout(saveT); saveT = setTimeout(flush, 800); }
 function flush() { dirty.forEach(k => put("ink2/" + k)); dirty.clear(); }   // 11-06: 送れなかったら sp-pend に残り、あとで送り直す（下の「送り直す」）
 function repaint(k) { if (k !== ikey()) return; bandSize(); if (oldPage < 0) { const ty = TY; showPaper(true); TY = ty; clampPan(); apply(); } draw(); }
 async function loadInk(k) {
@@ -138,14 +139,15 @@ async function loadInk(k) {
       else { try { const a = JSON.parse(lsGet("sp-ink-" + k) || "[]"); if (a.length) ink[k] = fromOld(a, qi); } catch (e) {} } }
     repaint(k); }
   if (!db) return;
+  const e0 = edits[k] || 0, fresh = () => (edits[k] || 0) === e0;   // 11-08（ユーザー「やってる途中できえた」）: 読んでいるあいだに書いたら、古い返事で入れかえない
   try {
-    if (!isQ) { const d = await db.doc("ink/" + k).get(); if (d.exists && k === ikey()) { const a = JSON.parse(d.data().s || "[]"); if (a.length >= (ink[k] || []).length) { ink[k] = a; lsSet("sp-ink-" + k, d.data().s); draw(); } } return; }
+    if (!isQ) { const d = await db.doc("ink/" + k).get(); if (d.exists && k === ikey() && fresh()) { const a = JSON.parse(d.data().s || "[]"); if (a.length >= (ink[k] || []).length) { ink[k] = a; lsSet("sp-ink-" + k, d.data().s); draw(); } } return; }
     const d = await db.doc("ink2/" + k).get();
-    if (d.exists) { if (dirty.has(k) || pendGet().includes("ink2/" + k)) return; const x = d.data(), o = norm({s: JSON.parse(x.s || "[]"), m: JSON.parse(x.m || "[]"), h: x.h});
+    if (d.exists) { if (!fresh() || dirty.has(k) || pendGet().includes("ink2/" + k)) return; const x = d.data(), o = norm({s: JSON.parse(x.s || "[]"), m: JSON.parse(x.m || "[]"), h: x.h});
       if (!ink[k] || ink[k].old || nOf(o) >= nOf(ink[k])) { ink[k] = o; lsSet("sp-ink2-" + k, JSON.stringify(pack(o))); repaint(k); } return; }
     if (lsGet("sp-ink2-" + k) || dirty.has(k) || (ink[k] && !ink[k].old && nOf(ink[k]))) return;   // 新しい形がもう手元にある
     const od = await db.doc("ink/" + k).get();   // 前の形（読むだけ）
-    if (od.exists && !dirty.has(k)) { const a = JSON.parse(od.data().s || "[]"); if (a.length && (!ink[k] || ink[k].old || !nOf(ink[k]))) { ink[k] = fromOld(a, qi); repaint(k); } }
+    if (od.exists && !dirty.has(k) && fresh()) { const a = JSON.parse(od.data().s || "[]"); if (a.length && (!ink[k] || ink[k].old || !nOf(ink[k]))) { ink[k] = fromOld(a, qi); repaint(k); } }
   } catch (e) {}
 }
 
